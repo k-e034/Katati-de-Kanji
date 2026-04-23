@@ -16,6 +16,7 @@ android/captures/
 *.aab
 *.keystore
 *.jks
+android/keystore.properties
 
 # OS
 .DS_Store

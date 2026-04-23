@@ -8,4 +8,5 @@
     <color name="ime_fg_muted">#8A8F99</color>
     <color name="ime_accent">#7AB7FF</color>
     <color name="ime_border">#2A2E37</color>
+    <color name="ic_launcher_background">#E5D8B8</color>
 </resources>
