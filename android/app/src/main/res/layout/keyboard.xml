@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/ime_bg">
+
+    <!-- Composing / status line -->
+    <TextView
+        android:id="@+id/composingView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="10dp"
+        android:textSize="18sp"
+        android:textColor="@color/ime_fg"
+        android:background="@color/ime_key_bg"
+        android:text="" />
+
+    <!-- Candidate strip (horizontally scrollable) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/candidateStrip"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/ime_key_bg"
+        android:paddingHorizontal="4dp"
+        android:clipToPadding="false" />
+
+    <!-- 12-key flick grid: rows use weight=1 so keyGrid needs a fixed height
+         (weighted children collapse inside wrap_content parents). -->
+    <LinearLayout
+        android:id="@+id/keyGrid"
+        android:layout_width="match_parent"
+        android:layout_height="280dp"
+        android:orientation="vertical"
+        android:padding="2dp" />
+</LinearLayout>

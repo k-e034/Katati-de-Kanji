@@ -1,0 +1,11 @@
+import Database from 'better-sqlite3';
+const db = new Database('./android/app/src/main/assets/idsfind.db', {readonly: true});
+console.log("schema:", db.prepare("SELECT sql FROM sqlite_master WHERE name LIKE 'idsfind%'").all());
+console.log("\n-- simple test: 九 as single token --");
+console.log(db.prepare(`SELECT r.char FROM idsfind_fts f JOIN idsfind_ref r USING (docid) WHERE f.IDS_tokens MATCH '"九"' LIMIT 5`).all());
+console.log("\n-- phrase with parens --");
+console.log(db.prepare(`SELECT r.char FROM idsfind_fts f JOIN idsfind_ref r USING (docid) WHERE f.IDS_tokens MATCH '(("九"))' LIMIT 5`).all());
+console.log("\n-- triple parens like our query --");
+console.log(db.prepare(`SELECT r.char FROM idsfind_fts f JOIN idsfind_ref r USING (docid) WHERE f.IDS_tokens MATCH '((("九") OR ("久") OR ("口")))' LIMIT 5`).all());
+console.log("\n-- sample IDS_tokens rows --");
+console.log(db.prepare("SELECT UCS, IDS_tokens FROM idsfind WHERE UCS IN ('九','久','口','鬼') ").all());

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="@color/ime_bg">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/ime_fg"
+        android:paddingBottom="12dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/enable_ime"
+        android:textColor="@color/ime_fg_muted"
+        android:paddingBottom="4dp" />
+
+    <Button
+        android:id="@+id/btnImeSettings"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/open_ime_settings"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/select_ime"
+        android:textColor="@color/ime_fg_muted"
+        android:paddingBottom="4dp" />
+
+    <Button
+        android:id="@+id/btnPicker"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/open_picker"
+        android:layout_marginBottom="24dp" />
+
+    <EditText
+        android:id="@+id/testInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/hint_text"
+        android:textSize="18sp"
+        android:textColor="@color/ime_fg"
+        android:textColorHint="@color/ime_fg_muted"
+        android:inputType="text"
+        android:importantForAutofill="no" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/ime_fg_muted"
+        android:textSize="12sp"
+        android:paddingTop="16dp" />
+</LinearLayout>

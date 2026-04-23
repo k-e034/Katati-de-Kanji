@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">カタチで漢字</string>
+    <string name="ime_name">カタチで漢字（字形で引く IME）</string>
+    <string name="enable_ime">1. 「言語と入力」で カタチで漢字 を有効化</string>
+    <string name="select_ime">2. キーボード切替で カタチで漢字 を選択</string>
+    <string name="open_ime_settings">IME設定を開く</string>
+    <string name="open_picker">入力方法を選択</string>
+    <string name="hint_text">ここで入力テスト: 例 きへんにもどる</string>
+</resources>
