@@ -44,7 +44,7 @@ class ImeService : InputMethodService() {
         keyGrid = root.findViewById(R.id.keyGrid)
 
         // Device-independent CJK rendering for user-composed text.
-        ImeFonts.cjk()?.let { composingView.typeface = it }
+        ImeFonts.cjk(this)?.let { composingView.typeface = it }
 
         candidateAdapter = CandidateAdapter { ucs -> commitCandidate(ucs) }
         candidateStrip.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
@@ -165,7 +165,7 @@ class ImeService : InputMethodService() {
             setBackgroundResource(R.color.ime_key_bg_special)
             setTextColor(resources.getColor(R.color.ime_fg, theme))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            ImeFonts.cjk()?.let { typeface = it }
+            ImeFonts.cjk(this@ImeService)?.let { typeface = it }
             setOnClickListener { onClick() }
         }
     }

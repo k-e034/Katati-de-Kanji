@@ -26,10 +26,10 @@ class KanaKey(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val flickThreshold = 24f * density
 
-    // Prefer Noto Sans CJK JP (shipped with Android) so kana/kanji glyphs look
-    // the same across devices. Falls back to DEFAULT_BOLD if the font is absent.
+    // Prefer the bundled IPAmj Mincho so kana/kanji glyphs look the same
+    // across devices. Falls back to DEFAULT_BOLD if the font fails to load.
     private val cjkFont: android.graphics.Typeface =
-        ImeFonts.cjk() ?: android.graphics.Typeface.DEFAULT_BOLD
+        ImeFonts.cjk(context) ?: android.graphics.Typeface.DEFAULT_BOLD
 
     private val paintCenter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#E6E6E6")

@@ -29,3 +29,4 @@ Thumbs.db
 # Misc debug
 inspect_out.txt
 /tmp/
+build-tmp/

@@ -30,9 +30,9 @@ class CandidateAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.candidate_item, parent, false)
         val vh = VH(v)
-        // Force Noto Sans CJK JP so rare kanji render with a consistent,
+        // Force the bundled IPAmj Mincho so rare kanji render with a consistent,
         // wide-coverage glyph set rather than whatever vendor font ships on the device.
-        ImeFonts.cjk()?.let { vh.glyph.typeface = it }
+        ImeFonts.cjk(parent.context)?.let { vh.glyph.typeface = it }
         return vh
     }
 
