@@ -324,8 +324,10 @@ final class FlickKeyView: UIControl {
         self.flicks = [left, up, right, down]
         super.init(frame: .zero)
         isMultipleTouchEnabled = false
+        contentMode = .redraw
         backgroundColor = UIColor(red: 0.15, green: 0.17, blue: 0.21, alpha: 1.0)
         layer.cornerRadius = 6
+        layer.masksToBounds = true
     }
 
     required init?(coder: NSCoder) {
