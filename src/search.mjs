@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,6 +8,10 @@ const ROOT = path.resolve(__dirname, '..');
 
 const mojiDb = new Database(path.join(ROOT, 'node_modules/@mandel59/mojidata/dist/moji.db'), { readonly: true });
 const idsDb = new Database(path.join(ROOT, 'node_modules/@mandel59/idsdb/idsfind.db'), { readonly: true });
+const subtreeIndexPath = path.join(ROOT, 'android/app/src/main/assets/subtree-index.db');
+const subtreeDb = fs.existsSync(subtreeIndexPath)
+  ? new Database(subtreeIndexPath, { readonly: true })
+  : null;
 
 const kataToHira = (s) => s.replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
 
@@ -260,6 +265,25 @@ results as (
 SELECT DISTINCT UCS FROM results LIMIT 60
 `;
 const queryStmt = idsDb.prepare(idsfindQuery);
+const signatureStmt = subtreeDb?.prepare(`SELECT signature FROM ids_signature WHERE UCS = ?`);
+const subtreeQueryStmt = subtreeDb?.prepare(`
+  SELECT r.char AS UCS, r.rank_tokens
+  FROM subtree_fts f
+  JOIN subtree_ref r ON r.docid = f.rowid
+  WHERE f.signatures MATCH ?
+  LIMIT 1000
+`);
+
+const POSITION_SIGNATURE_PREFIX = {
+  left: 'l',
+  right: 'r',
+  top: 't',
+  bottom: 'b',
+  wrapTL: 'd',
+  wrapBL: 'n',
+  wrapTR: 'q',
+  enclose: 'e',
+};
 
 // candidateGroups: array of AND groups. Each group is an array of alternatives
 // (OR). Each alternative is an array of tokens (pre-tokenized IDS fragment).
@@ -267,6 +291,26 @@ function findContainers(candidateGroups) {
   if (candidateGroups.length === 0) return [];
   const rows = queryStmt.all({ idslist: JSON.stringify(candidateGroups) });
   return rows.map(r => r.UCS).filter(c => !c.startsWith('&'));
+}
+
+function findContainersBySignature(candidateGroups, positions) {
+  if (!signatureStmt || !subtreeQueryStmt || candidateGroups.length === 0) return null;
+  const clauses = candidateGroups.map((candidates, index) => {
+    const prefix = POSITION_SIGNATURE_PREFIX[positions[index]] ?? 's';
+    const signatures = candidates.flatMap(ucs =>
+      signatureStmt.all(ucs).map(row => prefix + row.signature.slice(1)));
+    if (signatures.length === 0) return null;
+    const unique = [...new Set(signatures)];
+    return unique.length === 1 ? unique[0] : `(${unique.join(' OR ')})`;
+  });
+  if (clauses.some(x => x === null)) return null;
+  const grouped = new Map();
+  for (const row of subtreeQueryStmt.all(clauses.join(' '))) {
+    if (row.UCS.startsWith('&')) continue;
+    if (grouped.has(row.UCS)) grouped.get(row.UCS).push(row.rank_tokens);
+    else if (grouped.size < 60) grouped.set(row.UCS, [row.rank_tokens]);
+  }
+  return [...grouped].map(([UCS, tokens]) => ({ UCS, rank_tokens: tokens.join(' | ') }));
 }
 
 // FTS does presence-only AND (no count enforcement) and tokens get fully
@@ -280,6 +324,10 @@ const OL_RE = /^&ol-(.+?)-\d+;$/;
 function matchBonus(ucs, candidateGroups) {
   const rows = idsTokensStmt.all(ucs);
   if (rows.length === 0) return 0;
+  return matchBonusRows(rows.map(row => row.IDS_tokens), candidateGroups, true);
+}
+
+function matchBonusRows(rows, candidateGroups, parseOL = false) {
   const requirements = new Map();
   for (const g of candidateGroups) {
     const key = g.join('|');
@@ -287,14 +335,14 @@ function matchBonus(ucs, candidateGroups) {
     requirements.set(key, { set: new Set(g), min: (prev?.min ?? 0) + 1 });
   }
   let best = 0;
-  for (const { IDS_tokens } of rows) {
-    const toks = IDS_tokens.split(' ');
+  for (const tokens of rows) {
+    const toks = tokens.split(' ');
     let total = 0;
     for (const { set, min } of requirements.values()) {
       let c = 0;
       for (const t of toks) {
         if (set.has(t)) c++;
-        else { const m = OL_RE.exec(t); if (m && set.has(m[1])) c++; }
+        else if (parseOL) { const m = OL_RE.exec(t); if (m && set.has(m[1])) c++; }
       }
       total += Math.min(c, min);
     }
@@ -304,15 +352,31 @@ function matchBonus(ucs, candidateGroups) {
 }
 
 // Rank results: prefer common kanji (lower Unicode code point within CJK, joyo bonus)
-function rankResults(ucsList, candidateGroups) {
+function rankResults(ucsList, candidateGroups, includeMatchBonus = true) {
   return ucsList
     .map(u => {
       const cp = u.codePointAt(0);
       const isBMP = cp <= 0xFFFF;
       const isCJK = cp >= 0x4E00 && cp <= 0x9FFF;
       const inJoyo = joyoSet.has(u);
-      const bonus = matchBonus(u, candidateGroups);
+      const bonus = includeMatchBonus ? matchBonus(u, candidateGroups) : 0;
       // Match-bonus dominates; within same bonus, prefer joyo / BMP / CJK / lower code point.
+      const score = -bonus * 10_000_000 + (inJoyo ? 0 : 1_000_000) + (isBMP ? 0 : 500_000) + (isCJK ? 0 : 100_000) + cp;
+      return { ucs: u, score };
+    })
+    .sort((a, b) => a.score - b.score)
+    .map(x => x.ucs);
+}
+
+function rankSignatureResults(rows, candidateGroups) {
+  return rows
+    .map(row => {
+      const u = row.UCS;
+      const cp = u.codePointAt(0);
+      const isBMP = cp <= 0xFFFF;
+      const isCJK = cp >= 0x4E00 && cp <= 0x9FFF;
+      const inJoyo = joyoSet.has(u);
+      const bonus = matchBonusRows(row.rank_tokens.split(' | '), candidateGroups);
       const score = -bonus * 10_000_000 + (inJoyo ? 0 : 1_000_000) + (isBMP ? 0 : 500_000) + (isCJK ? 0 : 100_000) + cp;
       return { ucs: u, score };
     })
@@ -331,11 +395,13 @@ export function search(input, opts = {}) {
   // flatten into OR alternatives (each alternative is an array of tokens).
   const candidateGroups = [];
   const plainCandidates = []; // for ranking (bare kanji only)
+  const positions = [];
   const displayTokens = [];
   for (const t of tokens) {
     const kanjis = t.kind === 'kanji' ? [t.value]
       : (readingIndex.get(t.value) ?? []).slice(0, candidatePerReading);
     plainCandidates.push(kanjis);
+    positions.push(t.position);
     displayTokens.push(t.position ? `${t.value}(${t.position})` : t.value);
     const alts = [];
     for (const k of kanjis) for (const pat of applyPosition(k, t.position)) alts.push(pat);
@@ -346,7 +412,10 @@ export function search(input, opts = {}) {
     return { tokens: displayTokens, candidates: plainCandidates, results: [], message: '候補なしの読みがあります' };
   }
 
-  const raw = findContainers(candidateGroups);
-  const ranked = rankResults(raw, plainCandidates);
+  const fastRaw = findContainersBySignature(plainCandidates, positions);
+  const raw = fastRaw ?? findContainers(candidateGroups);
+  const ranked = fastRaw === null
+    ? rankResults(raw, plainCandidates)
+    : rankSignatureResults(raw, plainCandidates);
   return { tokens: displayTokens, candidates: plainCandidates, results: ranked };
 }

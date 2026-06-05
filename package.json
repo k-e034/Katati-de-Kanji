@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build:subtree-index": "node scripts/build-subtree-index.mjs",
+    "perf": "node perf-test.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

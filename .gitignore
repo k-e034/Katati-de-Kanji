@@ -30,3 +30,5 @@ Thumbs.db
 inspect_out.txt
 /tmp/
 build-tmp/
+*.db-shm
+*.db-wal

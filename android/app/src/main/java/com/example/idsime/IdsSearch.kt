@@ -18,17 +18,28 @@ import java.io.File
 class IdsSearch private constructor(ctx: Context) {
 
     private val db: SQLiteDatabase
+    private val subtreeDb: SQLiteDatabase?
     private val readings: Map<String, List<String>>
     private val joyoSet: Set<String>
     val readingCount: Int get() = readings.size
 
     init {
-        val dbFile = ensureDatabaseCopied(ctx)
+        val dbFile = ensureAssetCopied(ctx, "idsfind.db")
         Log.i(TAG, "db path=${dbFile.absolutePath} size=${dbFile.length()}")
         db = SQLiteDatabase.openDatabase(
             dbFile.absolutePath, null,
             SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
         )
+        subtreeDb = try {
+            val file = ensureAssetCopied(ctx, "subtree-index.db")
+            SQLiteDatabase.openDatabase(
+                file.absolutePath, null,
+                SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "subtree index unavailable; using legacy search", t)
+            null
+        }
         // Sanity-check schema
         try {
             db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'", null).use { c ->
@@ -105,10 +116,10 @@ class IdsSearch private constructor(ctx: Context) {
         joyoSet = js
     }
 
-    private fun ensureDatabaseCopied(ctx: Context): File {
-        val outFile = File(ctx.filesDir, "idsfind.db")
+    private fun ensureAssetCopied(ctx: Context, name: String): File {
+        val outFile = File(ctx.filesDir, name)
         if (!outFile.exists() || outFile.length() == 0L) {
-            ctx.assets.open("idsfind.db").use { input ->
+            ctx.assets.open(name).use { input ->
                 outFile.outputStream().use { output -> input.copyTo(output) }
             }
         }
@@ -155,14 +166,20 @@ class IdsSearch private constructor(ctx: Context) {
         if (groups.any { it.isEmpty() }) {
             return Result(display, plain, emptyList(), "候補なしの読みがあります")
         }
-        val raw = try {
+        val fastHits = try {
+            findContainersBySignature(plain, toks.map { it.position })
+        } catch (t: Throwable) {
+            Log.e(TAG, "signature search failed", t)
+            null
+        }
+        val raw = if (fastHits != null) fastHits.map { it.ucs } else try {
             findContainers(groups)
         } catch (t: Throwable) {
             Log.e(TAG, "findContainers failed", t)
             emptyList()
         }
         Log.i(TAG, "raw results: ${raw.size}")
-        val ranked = rankResults(raw, plain)
+        val ranked = if (fastHits != null) rankSignatureResults(fastHits, plain) else rankResults(raw, plain)
         Log.i(TAG, "ranked top10: ${ranked.take(10)}")
         return Result(display, plain, ranked)
     }
@@ -295,6 +312,66 @@ class IdsSearch private constructor(ctx: Context) {
         return out
     }
 
+    private data class SignatureHit(val ucs: String, val rankRows: MutableList<String>)
+
+    private fun findContainersBySignature(
+        candidateGroups: List<List<String>>,
+        positions: List<String?>,
+    ): List<SignatureHit>? {
+        val fastDb = subtreeDb ?: return null
+        if (candidateGroups.isEmpty()) return emptyList()
+
+        val allCandidates = candidateGroups.flatten().distinct()
+        val placeholders = List(allCandidates.size) { "?" }.joinToString(",")
+        val signaturesByCandidate = HashMap<String, MutableList<String>>()
+        fastDb.rawQuery(
+            "SELECT UCS, signature FROM ids_signature WHERE UCS IN ($placeholders)",
+            allCandidates.toTypedArray(),
+        ).use { c ->
+            while (c.moveToNext()) {
+                signaturesByCandidate.getOrPut(c.getString(0)) { mutableListOf() }.add(c.getString(1))
+            }
+        }
+
+        val clauses = ArrayList<String>(candidateGroups.size)
+        for ((index, candidates) in candidateGroups.withIndex()) {
+            val prefix = POSITION_SIGNATURE_PREFIX[positions.getOrNull(index)] ?: "s"
+            val signatures = LinkedHashSet<String>()
+            for (candidate in candidates) {
+                for (signature in signaturesByCandidate[candidate].orEmpty()) {
+                    signatures.add(prefix + signature.substring(1))
+                }
+            }
+            if (signatures.isEmpty()) return null
+            clauses.add(
+                if (signatures.size == 1) signatures.first()
+                else "(${signatures.joinToString(" OR ")})"
+            )
+        }
+
+        val pattern = clauses.joinToString(" ")
+        val grouped = LinkedHashMap<String, SignatureHit>()
+        fastDb.rawQuery(
+            """
+            SELECT r.char, r.rank_tokens
+            FROM subtree_fts f
+            JOIN subtree_ref r ON r.docid = f.rowid
+            WHERE f.signatures MATCH ?
+            LIMIT 1000
+            """.trimIndent(),
+            arrayOf(pattern),
+        ).use { c ->
+            while (c.moveToNext()) {
+                val value = c.getString(0)
+                if (value.startsWith("&")) continue
+                val existing = grouped[value]
+                if (existing != null) existing.rankRows.add(c.getString(1))
+                else if (grouped.size < 60) grouped[value] = SignatureHit(value, mutableListOf(c.getString(1)))
+            }
+        }
+        return grouped.values.toList()
+    }
+
     // ---- Ranking (match-bonus + commonness) ----
 
     private val olRegex = Regex("^&ol-(.+?)-\\d+;$")
@@ -348,6 +425,47 @@ class IdsSearch private constructor(ctx: Context) {
             }
             .sortedBy { it.second }
             .map { it.first }
+    }
+
+    private fun rankSignatureResults(hits: List<SignatureHit>, plainGroups: List<List<String>>): List<String> {
+        return hits
+            .map { hit ->
+                val cp = hit.ucs.codePointAt(0)
+                val isBMP = cp <= 0xFFFF
+                val isCJK = cp in 0x4E00..0x9FFF
+                val inJoyo = joyoSet.contains(hit.ucs)
+                val bonus = matchBonusRows(hit.rankRows, plainGroups)
+                val score = -bonus * 10_000_000L +
+                    (if (inJoyo) 0 else 1_000_000) +
+                    (if (isBMP) 0 else 500_000) +
+                    (if (isCJK) 0 else 100_000) +
+                    cp
+                hit.ucs to score
+            }
+            .sortedBy { it.second }
+            .map { it.first }
+    }
+
+    private fun matchBonusRows(rows: List<String>, plainGroups: List<List<String>>): Int {
+        data class Req(val set: Set<String>, val min: Int)
+        val requirements = HashMap<String, Req>()
+        for (group in plainGroups) {
+            val key = group.joinToString("|")
+            val previous = requirements[key]
+            requirements[key] = Req(group.toSet(), (previous?.min ?: 0) + 1)
+        }
+        var best = 0
+        for (row in rows) {
+            val tokens = row.split(' ')
+            var total = 0
+            for (requirement in requirements.values) {
+                var count = 0
+                for (token in tokens) if (requirement.set.contains(token)) count++
+                total += minOf(count, requirement.min)
+            }
+            if (total > best) best = total
+        }
+        return best
     }
 
     companion object {
@@ -454,6 +572,17 @@ class IdsSearch private constructor(ctx: Context) {
                 listOf("⿴", "%X%", "？"), listOf("⿵", "%X%", "？"),
                 listOf("⿶", "%X%", "？"), listOf("⿷", "%X%", "？")
             ),
+        )
+
+        private val POSITION_SIGNATURE_PREFIX = mapOf(
+            "left" to "l",
+            "right" to "r",
+            "top" to "t",
+            "bottom" to "b",
+            "wrapTL" to "d",
+            "wrapBL" to "n",
+            "wrapTR" to "q",
+            "enclose" to "e",
         )
     }
 }
